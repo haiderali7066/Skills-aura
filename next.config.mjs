@@ -6,10 +6,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // Skip prerendering for dynamic routes
-  experimental: {
-    isrMemoryCacheSize: 0,
-  },
+  
   onDemandEntries: {
     maxInactiveAge: 60 * 1000,
     pagesBufferLength: 5,
