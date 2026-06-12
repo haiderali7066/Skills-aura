@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Header } from '@/components/header';
-import { Footer } from '@/components/footer';
+
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Course, Batch } from '@/lib/types';
@@ -121,11 +120,9 @@ export default function CheckoutPage() {
   if (loading) {
     return (
       <>
-        <Header />
         <main className="min-h-screen flex items-center justify-center">
           <Loader className="w-8 h-8 animate-spin text-primary" />
         </main>
-        <Footer />
       </>
     );
   }
@@ -133,7 +130,6 @@ export default function CheckoutPage() {
   if (!course) {
     return (
       <>
-        <Header />
         <main className="min-h-screen py-12">
           <div className="container mx-auto px-4 text-center">
             <h1 className="text-2xl font-bold mb-4">Checkout Error</h1>
@@ -141,14 +137,12 @@ export default function CheckoutPage() {
             <Button onClick={() => router.push('/courses')}>Back to Courses</Button>
           </div>
         </main>
-        <Footer />
       </>
     );
   }
 
   return (
     <>
-      <Header />
       <main className="min-h-screen py-12">
         <div className="container mx-auto px-4 max-w-4xl">
           <h1 className="text-3xl font-bold mb-8">Complete Your Purchase</h1>
@@ -234,7 +228,6 @@ export default function CheckoutPage() {
           </div>
         </div>
       </main>
-      <Footer />
     </>
   );
 }

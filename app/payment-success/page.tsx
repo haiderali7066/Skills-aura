@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Header } from '@/components/header';
-import { Footer } from '@/components/footer';
+
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { CheckCircle2, Loader } from 'lucide-react';
@@ -47,18 +46,15 @@ export default function PaymentSuccessPage() {
   if (loading) {
     return (
       <>
-        <Header />
         <main className="min-h-screen flex items-center justify-center">
           <Loader className="w-8 h-8 animate-spin text-primary" />
         </main>
-        <Footer />
       </>
     );
   }
 
   return (
     <>
-      <Header />
       <main className="min-h-screen py-12">
         <div className="container mx-auto px-4 max-w-2xl">
           {verified ? (
@@ -138,7 +134,6 @@ export default function PaymentSuccessPage() {
           )}
         </div>
       </main>
-      <Footer />
     </>
   );
 }
