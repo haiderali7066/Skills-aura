@@ -3,8 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useEffect, useState } from 'react';
-import { Header } from '@/components/header';
-import { Footer } from '@/components/footer';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Enrollment, Course } from '@/lib/types';
@@ -80,18 +79,15 @@ export default function AccountPage() {
   if (loading) {
     return (
       <>
-        <Header />
         <main className="min-h-screen flex items-center justify-center">
           <Loader className="w-8 h-8 animate-spin text-primary" />
         </main>
-        <Footer />
       </>
     );
   }
 
   return (
     <>
-      <Header />
       <main className="min-h-screen py-12">
         <div className="container mx-auto px-4 max-w-4xl">
           {/* User Profile */}
@@ -178,7 +174,6 @@ export default function AccountPage() {
           </div>
         </div>
       </main>
-      <Footer />
     </>
   );
 }
