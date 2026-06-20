@@ -1,945 +1,788 @@
-"use client";
+"use client"
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import {
-  TrendingUp, TrendingDown, Globe, Users, Clock, Shield,
-  ChevronDown, ChevronRight, ArrowRight, Check, MapPin,
-  BarChart2, Target, Brain, BookOpen, Zap, Award,
-  Phone, Mail, MessageSquare, Star, Play, Minus, Plus,
-  DollarSign, Activity, Lock, Repeat, Layers
-} from "lucide-react";
+import React, { useState, useEffect, useRef } from 'react';
 
-// ─────────────────────────────────────────────
-// Utilities
-// ─────────────────────────────────────────────
-function cn(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(" ");
+// ── Router shim (works standalone or inside Next/React Router) ──────────────
+function useNavigate() {
+  return (path) => {
+    if (typeof window !== 'undefined') {
+      window.location.href = path;
+    }
+  };
 }
 
-function useInView(threshold = 0.15) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [inView, setInView] = useState(false);
+// ── Reusable animated counter ──────────────────────────────────────────────
+function AnimatedNumber({ target, suffix = '', prefix = '' }) {
+  const [value, setValue] = useState(0);
+  const ref = useRef(null);
+  const started = useRef(false);
+
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) setInView(true); },
-      { threshold }
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && !started.current) {
+        started.current = true;
+        let start = 0;
+        const duration = 1800;
+        const step = (timestamp) => {
+          if (!start) start = timestamp;
+          const progress = Math.min((timestamp - start) / duration, 1);
+          const eased = 1 - Math.pow(1 - progress, 3);
+          setValue(Math.floor(eased * target));
+          if (progress < 1) requestAnimationFrame(step);
+          else setValue(target);
+        };
+        requestAnimationFrame(step);
+      }
+    }, { threshold: 0.5 });
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [target]);
+
+  return <span ref={ref}>{prefix}{value.toLocaleString()}{suffix}</span>;
+}
+
+// ── Scroll-reveal hook ────────────────────────────────────────────────────
+function useReveal(threshold = 0.15) {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const observer = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { setVisible(true); observer.disconnect(); }
+    }, { threshold });
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
   }, [threshold]);
-  return { ref, inView };
+  return [ref, visible];
 }
 
-function useCounter(target: number, duration = 2200, active = false) {
-  const [val, setVal] = useState(0);
+function Reveal({ children, delay = 0, className = '' }) {
+  const [ref, visible] = useReveal();
+  return (
+    <div
+      ref={ref}
+      className={className}
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? 'translateY(0)' : 'translateY(32px)',
+        transition: `opacity 0.7s ease ${delay}ms, transform 0.7s ease ${delay}ms`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ── Floating particle background ──────────────────────────────────────────
+function ParticleField({ count = 30 }) {
+  const particles = useRef(
+    Array.from({ length: count }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      size: Math.random() * 2 + 1,
+      speed: Math.random() * 20 + 15,
+      delay: Math.random() * -20,
+    }))
+  ).current;
+
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden>
+      {particles.map((p) => (
+        <div
+          key={p.id}
+          className="absolute rounded-full bg-purple-400 opacity-20"
+          style={{
+            left: `${p.x}%`,
+            top: `${p.y}%`,
+            width: p.size,
+            height: p.size,
+            animation: `float ${p.speed}s linear ${p.delay}s infinite`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────
+export default function SkillsAuraHome() {
+  const navigate = useNavigate();
+  const [activeFeature, setActiveFeature] = useState(null);
+  const [heroVisible, setHeroVisible] = useState(false);
+  const [batchCity, setBatchCity] = useState('All');
+
   useEffect(() => {
-    if (!active) return;
-    let start: number | null = null;
-    const tick = (ts: number) => {
-      if (!start) start = ts;
-      const p = Math.min((ts - start) / duration, 1);
-      const ease = 1 - Math.pow(1 - p, 4);
-      setVal(Math.floor(ease * target));
-      if (p < 1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  }, [target, duration, active]);
-  return val;
-}
-
-// ─────────────────────────────────────────────
-// Live Candlestick Chart — signature element
-// ─────────────────────────────────────────────
-type Candle = { o: number; h: number; l: number; c: number };
-
-function generateCandles(count: number): Candle[] {
-  const candles: Candle[] = [];
-  let price = 1850;
-  for (let i = 0; i < count; i++) {
-    const o = price;
-    const change = (Math.random() - 0.48) * 18;
-    const c = o + change;
-    const h = Math.max(o, c) + Math.random() * 8;
-    const l = Math.min(o, c) - Math.random() * 8;
-    candles.push({ o, h, l, c });
-    price = c;
-  }
-  return candles;
-}
-
-function CandlestickChart() {
-  const [candles, setCandles] = useState<Candle[]>(() => generateCandles(28));
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setCandles(prev => {
-        const last = prev[prev.length - 1];
-        const newC = last.c + (Math.random() - 0.48) * 14;
-        const newO = last.c;
-        const newH = Math.max(newO, newC) + Math.random() * 7;
-        const newL = Math.min(newO, newC) - Math.random() * 7;
-        return [...prev.slice(1), { o: newO, h: newH, l: newL, c: newC }];
-      });
-      setTick(t => t + 1);
-    }, 900);
-    return () => clearInterval(id);
+    const t = setTimeout(() => setHeroVisible(true), 100);
+    return () => clearTimeout(t);
   }, []);
 
-  const W = 560, H = 160, PAD = 12;
-  const all = candles.flatMap(c => [c.h, c.l]);
-  const minP = Math.min(...all) - 5;
-  const maxP = Math.max(...all) + 5;
-  const scaleY = (p: number) => H - PAD - ((p - minP) / (maxP - minP)) * (H - PAD * 2);
-  const cW = (W - PAD * 2) / candles.length;
+  const featureDetails = {
+    'Live Market Learning': 'Sessions happen during active market hours — you watch and execute real trades alongside mentors, not pre-recorded theory.',
+    'Structured Roadmap': 'A clear 8-module progression from zero to independent trader, with weekly milestones and progress checkpoints.',
+    'Expert Mentorship': 'Direct access to traders who manage real accounts. Ask questions, get trade reviews, and shadow real decisions.',
+    'Community Access': 'A private Discord + WhatsApp group of 700+ active traders sharing setups, reviewing each others charts, and holding accountability.',
+    'Independence Focus': 'The goal is never dependency — every lesson is designed to make you self-sufficient in reading markets and executing trades.',
+  };
 
-  const linePoints = candles.map((c, i) => `${PAD + i * cW + cW / 2},${scaleY(c.c)}`).join(" ");
-  const lastCandle = candles[candles.length - 1];
-  const isUp = lastCandle.c >= lastCandle.o;
+  const batches = [
+    { date: 'July 5, 2025',  time: '8:00 PM – 10:00 PM PKT', loc: '🌐 Online via Zoom',    city: 'Online',    seats: 7,  total: 20 },
+    { date: 'July 8, 2025',  time: '4:00 PM – 7:00 PM',      loc: '📍 Lahore Campus',      city: 'Lahore',    seats: 3,  total: 15 },
+    { date: 'July 12, 2025', time: '6:00 PM – 9:00 PM',      loc: '📍 Islamabad Campus',   city: 'Islamabad', seats: 11, total: 20 },
+    { date: 'July 18, 2025', time: '7:00 PM – 10:00 PM',     loc: '📍 Karachi Campus',     city: 'Karachi',   seats: 5,  total: 20 },
+    { date: 'July 22, 2025', time: '9:00 AM – 11:00 AM PKT', loc: '🌐 Online via Zoom',    city: 'Online',    seats: 15, total: 20 },
+    { date: 'Aug 1, 2025',   time: '2:00 PM – 5:00 PM',      loc: '📍 Lahore Campus',      city: 'Lahore',    seats: 18, total: 20 },
+  ];
 
-  return (
-    <div className="relative w-full rounded-xl overflow-hidden bg-[#0a0a12] border border-white/[0.07]">
-      {/* Header row */}
-      <div className="flex items-center justify-between px-5 pt-4 pb-2">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 bg-violet-600/20 rounded-md px-2.5 py-1">
-            <Activity size={13} className="text-violet-400" />
-            <span className="text-xs font-semibold text-violet-300 tracking-wide">XAU / USD</span>
-          </div>
-          <span className="text-xs text-white/30 font-mono">GOLD SPOT</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xl font-bold text-white">
-            {lastCandle.c.toFixed(2)}
-          </span>
-          <span className={cn(
-            "text-xs font-semibold px-2 py-0.5 rounded",
-            isUp ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
-          )}>
-            {isUp ? "+" : ""}{((lastCandle.c - candles[0].o) / candles[0].o * 100).toFixed(2)}%
-          </span>
-        </div>
-      </div>
-
-      {/* Chart */}
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 160 }}>
-        {/* Grid lines */}
-        {[0.25, 0.5, 0.75].map(t => (
-          <line key={t} x1={PAD} y1={PAD + t * (H - PAD * 2)} x2={W - PAD} y2={PAD + t * (H - PAD * 2)}
-            stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
-        ))}
-        {/* Candles */}
-        {candles.map((c, i) => {
-          const x = PAD + i * cW + cW / 2;
-          const up = c.c >= c.o;
-          const color = up ? "#10b981" : "#f43f5e";
-          const bodyTop = scaleY(Math.max(c.o, c.c));
-          const bodyH = Math.max(2, Math.abs(scaleY(c.o) - scaleY(c.c)));
-          return (
-            <g key={i}>
-              <line x1={x} y1={scaleY(c.h)} x2={x} y2={scaleY(c.l)} stroke={color} strokeWidth="1" opacity="0.7" />
-              <rect x={x - cW * 0.3} y={bodyTop} width={cW * 0.6} height={bodyH}
-                fill={color} opacity={i === candles.length - 1 ? 1 : 0.75} rx="1" />
-            </g>
-          );
-        })}
-        {/* Price line */}
-        <polyline points={linePoints} fill="none" stroke="rgba(167,139,250,0.4)" strokeWidth="1" />
-        {/* Current price dot */}
-        <circle
-          cx={PAD + (candles.length - 1) * cW + cW / 2}
-          cy={scaleY(lastCandle.c)}
-          r="4" fill="#a78bfa"
-        />
-      </svg>
-
-      {/* Time selector */}
-      <div className="flex gap-1 px-5 pb-4">
-        {["1H","4H","1D","1W","1M"].map((t, i) => (
-          <button key={t} className={cn(
-            "px-2.5 py-1 rounded text-xs font-semibold transition-colors",
-            i === 2 ? "bg-violet-600/30 text-violet-300" : "text-white/25 hover:text-white/50"
-          )}>{t}</button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Live Ticker Bar
-// ─────────────────────────────────────────────
-const TICKERS = [
-  { pair: "EUR/USD", val: "1.0847", chg: "+0.12", up: true },
-  { pair: "XAU/USD", val: "2,345.80", chg: "+0.87", up: true },
-  { pair: "GBP/USD", val: "1.2701", chg: "-0.04", up: false },
-  { pair: "USD/JPY", val: "157.23", chg: "+0.33", up: true },
-  { pair: "USD/CHF", val: "0.8921", chg: "-0.11", up: false },
-  { pair: "WTI OIL", val: "79.42", chg: "-0.19", up: false },
-  { pair: "S&P 500", val: "5,312", chg: "+0.58", up: true },
-  { pair: "BTC/USD", val: "67,120", chg: "+2.14", up: true },
-  { pair: "EUR/GBP", val: "0.8540", chg: "+0.06", up: true },
-  { pair: "NAS 100", val: "18,740", chg: "+1.02", up: true },
-];
-
-function TickerBar() {
-  return (
-    <div className="w-full overflow-hidden border-y border-white/[0.06] bg-[#07070f] py-2.5">
-      <div className="flex gap-8 whitespace-nowrap" style={{ animation: "ticker 30s linear infinite" }}>
-        {[...TICKERS, ...TICKERS].map((t, i) => (
-          <span key={i} className="inline-flex items-center gap-2 text-xs font-mono shrink-0">
-            <span className="text-white/35">{t.pair}</span>
-            <span className="text-white font-semibold">{t.val}</span>
-            <span className={cn("flex items-center gap-0.5", t.up ? "text-emerald-400" : "text-rose-400")}>
-              {t.up ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-              {t.chg}%
-            </span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Section Label
-// ─────────────────────────────────────────────
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="inline-flex items-center gap-2 mb-5">
-      <span className="h-px w-6 bg-violet-500" />
-      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-400">{children}</span>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Reason Card
-// ─────────────────────────────────────────────
-function ReasonCard({ icon: Icon, title, desc }: { icon: React.ElementType; title: string; desc: string }) {
-  return (
-    <div className="group relative flex flex-col gap-4 rounded-2xl border border-white/[0.07] bg-[#0d0d18] p-6 transition-all duration-300 hover:border-violet-500/30 hover:bg-[#10101f]">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-violet-500/20 bg-violet-500/10">
-        <Icon size={18} className="text-violet-400" />
-      </div>
-      <div>
-        <h4 className="mb-1.5 text-sm font-bold text-white">{title}</h4>
-        <p className="text-xs leading-relaxed text-white/45">{desc}</p>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Course Card
-// ─────────────────────────────────────────────
-interface CourseCardProps {
-  tier: string;
-  title: string;
-  price: string;
-  desc: string;
-  items: string[];
-  featured?: boolean;
-}
-function CourseCard({ tier, title, price, desc, items, featured }: CourseCardProps) {
-  return (
-    <div className={cn(
-      "relative flex flex-col rounded-2xl border p-8 transition-all duration-300 hover:-translate-y-1",
-      featured
-        ? "border-violet-500/60 bg-gradient-to-b from-violet-950/50 to-[#0d0d18]"
-        : "border-white/[0.07] bg-[#0d0d18] hover:border-white/15"
-    )}>
-      {featured && (
-        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full bg-violet-600 px-4 py-1.5">
-          <Star size={10} className="text-white fill-white" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-white">Most Popular</span>
-        </div>
-      )}
-      <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-violet-400">{tier}</div>
-      <h3 className="mb-1 text-xl font-black text-white">{title}</h3>
-      <p className="mb-6 text-xs text-white/40 leading-relaxed">{desc}</p>
-      <div className="mb-6 flex items-baseline gap-1">
-        <span className="text-4xl font-black text-white">{price}</span>
-        {price !== "Custom" && <span className="text-sm text-white/30 mb-0.5">USD</span>}
-      </div>
-      <ul className="mb-8 flex flex-col gap-2.5">
-        {items.map(item => (
-          <li key={item} className="flex items-start gap-2.5">
-            <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-violet-500/15">
-              <Check size={9} className="text-violet-400" strokeWidth={3} />
-            </div>
-            <span className="text-xs leading-relaxed text-white/60">{item}</span>
-          </li>
-        ))}
-      </ul>
-      <button className={cn(
-        "mt-auto w-full rounded-xl py-3 text-sm font-bold tracking-wide transition-all duration-200",
-        featured
-          ? "bg-violet-600 text-white hover:bg-violet-500"
-          : "border border-white/15 text-white/80 hover:border-white/30 hover:text-white"
-      )}>
-        Enroll Now
-      </button>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Step
-// ─────────────────────────────────────────────
-function Step({ n, title, desc, last = false }: { n: string; title: string; desc: string; last?: boolean }) {
-  return (
-    <div className="flex gap-5">
-      <div className="flex flex-col items-center shrink-0">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full border border-violet-500/50 bg-violet-500/10 text-xs font-black text-violet-300">
-          {n}
-        </div>
-        {!last && <div className="mt-2 w-px flex-1 bg-gradient-to-b from-violet-500/30 to-transparent min-h-[32px]" />}
-      </div>
-      <div className="pb-7">
-        <h4 className="mb-1 text-sm font-bold text-white">{title}</h4>
-        <p className="text-xs leading-relaxed text-white/45">{desc}</p>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Testimonial Card
-// ─────────────────────────────────────────────
-function TestCard({ name, loc, quote, profit, up = true }: {
-  name: string; loc: string; quote: string; profit: string; up?: boolean;
-}) {
-  const initials = name.split(" ").map(w => w[0]).join("").slice(0, 2);
-  return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-white/[0.07] bg-[#0d0d18] p-6 hover:border-violet-500/25 transition-colors">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-700/50 text-xs font-black text-violet-200">
-            {initials}
-          </div>
-          <div>
-            <p className="text-sm font-bold text-white">{name}</p>
-            <div className="flex items-center gap-1 text-xs text-white/35">
-              <MapPin size={9} />
-              {loc}
-            </div>
-          </div>
-        </div>
-        <div className={cn(
-          "flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold",
-          up ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
-        )}>
-          {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-          {profit}
-        </div>
-      </div>
-      <p className="text-xs leading-relaxed text-white/50 italic">"{quote}"</p>
-      <div className="flex gap-0.5">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Star key={i} size={11} className="text-amber-400 fill-amber-400" />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// FAQ
-// ─────────────────────────────────────────────
-function FAQItem({ q, a }: { q: string; a: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="border-b border-white/[0.07] last:border-b-0">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex w-full items-center justify-between gap-4 py-5 text-left transition-colors hover:text-violet-300"
-      >
-        <span className="text-sm font-semibold text-white/80">{q}</span>
-        <div className={cn(
-          "shrink-0 flex h-6 w-6 items-center justify-center rounded-full border transition-all duration-200",
-          open ? "border-violet-500/50 bg-violet-500/10 text-violet-400 rotate-180" : "border-white/10 text-white/30"
-        )}>
-          <ChevronDown size={13} />
-        </div>
-      </button>
-      {open && (
-        <p className="pb-5 text-xs leading-relaxed text-white/45">{a}</p>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Main
-// ─────────────────────────────────────────────
-export default function HomePage() {
-  const statsRef = useInView(0.3);
-  const students = useCounter(713, 2000, statsRef.inView);
-  const profit = useCounter(971000, 2400, statsRef.inView);
-  const countries = useCounter(5, 1000, statsRef.inView);
-  const hours = useCounter(12000, 2200, statsRef.inView);
+  const filteredBatches = batchCity === 'All' ? batches : batches.filter(b => b.city === batchCity);
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#05050a] text-white antialiased">
+    <div className="min-h-screen bg-black text-white font-sans overflow-x-hidden selection:bg-purple-600 selection:text-white">
 
-      {/* ── HERO ─────────────────────────────── */}
-      <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6 pb-24 pt-28">
-
-        {/* Ambient glow — the only atmospheric effect, used with restraint */}
-        <div className="pointer-events-none absolute left-1/2 top-1/3 -translate-x-1/2 -translate-y-1/2 h-[600px] w-[800px] rounded-full"
-          style={{ background: "radial-gradient(ellipse, rgba(124,58,237,0.14) 0%, transparent 70%)" }} />
-
-        {/* Star field */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          {Array.from({ length: 60 }).map((_, i) => (
-            <div key={i} className="absolute rounded-full bg-white"
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${Math.random() * 80}%`,
-                width: `${Math.random() * 1.5 + 0.5}px`,
-                height: `${Math.random() * 1.5 + 0.5}px`,
-                opacity: Math.random() * 0.5 + 0.05,
-                animation: `twinkle ${Math.random() * 5 + 3}s ease-in-out infinite`,
-                animationDelay: `${Math.random() * 5}s`,
-              }}
-            />
-          ))}
-        </div>
-
-        {/* Eyebrow pill */}
-        <div className="relative mb-8 flex items-center gap-2.5 rounded-full border border-violet-500/25 bg-violet-950/30 px-5 py-2">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-400" />
-          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
-            Pakistan's First Elite Trading Institute
-          </span>
-        </div>
-
-        {/* Headline */}
-        <h1 className="relative max-w-4xl text-center font-black uppercase leading-none tracking-tighter text-white"
-          style={{ fontSize: "clamp(2.8rem, 8vw, 7.5rem)" }}>
-          Learn Trading
-          <br />
-          <span style={{ background: "linear-gradient(100deg, #7c3aed 0%, #a78bfa 45%, #c4b5fd 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-            From The Minds
-          </span>
-          <br />
-          Who Move Markets.
-        </h1>
-
-        <p className="relative mt-6 max-w-lg text-center text-sm leading-relaxed text-white/45">
-          Forex, commodities, risk management, and trading psychology — through live institutional mentorship designed for long-term, consistent profitability.
-        </p>
-
-        <div className="relative mt-10 flex flex-wrap items-center justify-center gap-4">
-          <button className="group flex items-center gap-2 rounded-full bg-violet-600 px-8 py-3.5 text-sm font-bold text-white transition-all duration-200 hover:bg-violet-500 hover:gap-3">
-            Enroll Now
-            <ArrowRight size={15} className="transition-transform duration-200 group-hover:translate-x-0.5" />
-          </button>
-          <button className="rounded-full border border-white/15 px-8 py-3.5 text-sm font-semibold text-white/70 transition-all duration-200 hover:border-white/30 hover:text-white">
-            Book Free Consultation
-          </button>
-        </div>
-
-        {/* Trust line */}
-        <div className="relative mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-          {[
-            { icon: Users, label: "700+ Students" },
-            { icon: Globe, label: "5 Countries" },
-            { icon: Shield, label: "100% Money-Back" },
-            { icon: Award, label: "0% Dropout Rate" },
-          ].map(({ icon: Icon, label }) => (
-            <span key={label} className="flex items-center gap-1.5 text-xs text-white/30">
-              <Icon size={11} className="text-violet-400" />
-              {label}
-            </span>
-          ))}
-        </div>
-
-        {/* Chart card */}
-        <div className="relative mt-16 w-full max-w-xl">
-          <CandlestickChart />
-        </div>
-      </section>
-
-      {/* ── TICKER ───────────────────────────── */}
-      <TickerBar />
-
-      {/* ── STATS ────────────────────────────── */}
-      <section ref={statsRef.ref} className="px-6 py-24 bg-[#07070e]">
-        <div className="mx-auto max-w-5xl">
-          <div className="text-center mb-14">
-            <Label>By The Numbers</Label>
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-white">Results That Speak</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            {[
-              { icon: Users, val: students, suffix: "+", label: "Students Trained" },
-              { icon: DollarSign, val: profit, suffix: "+", label: "Cumulative Profit (USD)", format: true },
-              { icon: Globe, val: countries, suffix: "", label: "Countries Worldwide" },
-              { icon: Clock, val: hours, suffix: "+", label: "Hours of Mentorship", format: true },
-            ].map(({ icon: Icon, val, suffix, label, format }) => (
-              <div key={label} className="rounded-2xl border border-white/[0.07] bg-[#0d0d18] p-6 text-center">
-                <div className="mb-3 flex justify-center">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-500/20 bg-violet-500/10">
-                    <Icon size={16} className="text-violet-400" />
-                  </div>
-                </div>
-                <div className="text-3xl font-black text-white mb-1">
-                  {format ? val.toLocaleString() : val}{suffix}
-                </div>
-                <div className="text-[11px] text-white/35 font-medium">{label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── WHY SKILLS AURA ──────────────────── */}
-      <section className="relative px-6 py-28 overflow-hidden">
-        <div className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 h-[500px] w-[400px] rounded-full"
-          style={{ background: "radial-gradient(ellipse, rgba(124,58,237,0.09) 0%, transparent 70%)" }} />
-        <div className="relative mx-auto max-w-5xl">
-          <div className="mb-16">
-            <Label>Our Edge</Label>
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-white mb-3">Why Future Traders<br />Choose Skills Aura</h2>
-            <p className="text-sm text-white/40 max-w-md">7 reasons we have a zero-dropout record and a 100% money-back guarantee.</p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <ReasonCard icon={BarChart2} title="Golden Map Framework" desc="A structured institutional system to analyze markets with professional precision." />
-            <ReasonCard icon={TrendingUp} title="Zero to Withdrawal" desc="We mentor you until you make and withdraw your very first real profit." />
-            <ReasonCard icon={Layers} title="Institutional Mentorship" desc="Learn from traders who actively trade the markets — not just teach theory." />
-            <ReasonCard icon={Target} title="Personalized Journey" desc="Every student follows a path tailored to their strengths and learning speed." />
-            <ReasonCard icon={Award} title="Pakistan's First Premium Academy" desc="Setting a new national standard for how trading education is delivered." />
-            <ReasonCard icon={Zap} title="Hands-On Practical" desc="Real charts. Real trades. Real-time guidance — zero empty theory." />
-            <ReasonCard icon={Brain} title="Trading Psychology" desc="The discipline and emotional control that separates professionals from amateurs." />
-            <ReasonCard icon={Repeat} title="Lifetime Skill" desc="Build a high-income skill that can generate consistent returns for decades." />
-          </div>
-        </div>
-      </section>
-
-      {/* ── LEARNING JOURNEY ─────────────────── */}
-      <section className="bg-[#07070e] px-6 py-28">
-        <div className="mx-auto max-w-5xl">
-          <div className="grid gap-16 lg:grid-cols-2 lg:items-start">
-            <div className="lg:sticky lg:top-24">
-              <Label>The Roadmap</Label>
-              <h2 className="mb-5 text-4xl font-black uppercase tracking-tighter text-white leading-none">
-                Your Path To<br />Consistent Profits
-              </h2>
-              <p className="mb-8 text-sm leading-relaxed text-white/45">
-                Every student follows a structured, battle-tested roadmap. No shortcuts — only the exact framework that has produced 700+ profitable traders across 5 countries.
-              </p>
-              {/* Mini stats */}
-              <div className="grid grid-cols-2 gap-3 mb-8">
-                {[
-                  { val: "3 mo", label: "Average to first trade" },
-                  { val: "70%+", label: "Strategy win rate" },
-                  { val: "4 mo", label: "To funded account" },
-                  { val: "100%", label: "Money-back guarantee" },
-                ].map(({ val, label }) => (
-                  <div key={label} className="rounded-xl border border-white/[0.07] bg-[#0d0d18] p-4">
-                    <p className="text-xl font-black text-violet-300 mb-0.5">{val}</p>
-                    <p className="text-xs text-white/35">{label}</p>
-                  </div>
-                ))}
-              </div>
-              <button className="flex items-center gap-2 rounded-full bg-violet-600 px-6 py-3 text-sm font-bold text-white hover:bg-violet-500 transition-colors">
-                Start Your Journey
-                <ArrowRight size={14} />
-              </button>
-            </div>
-            <div>
-              <Step n="01" title="Market Foundations" desc="Candlesticks, chart reading, account setup, and trade execution from first principles." />
-              <Step n="02" title="Market Structure" desc="Supply & demand zones, price action, trend identification, and institutional order flow." />
-              <Step n="03" title="Risk Management" desc="Capital preservation rules, position sizing, stop-loss discipline, and account scaling." />
-              <Step n="04" title="Trading Psychology" desc="Emotional control, journaling systems, discipline frameworks, and routine-building." />
-              <Step n="05" title="Personal Strategy" desc="Build your own edge with a personally calibrated strategy achieving 70%+ win rate." />
-              <Step n="06" title="Trade Independently" last desc="Live trading, funded account acquisition, and consistent withdrawals." />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── COURSES ──────────────────────────── */}
-      <section className="relative px-6 py-28 overflow-hidden">
-        <div className="pointer-events-none absolute left-1/2 bottom-0 -translate-x-1/2 h-72 w-[700px] rounded-full"
-          style={{ background: "radial-gradient(ellipse, rgba(124,58,237,0.11) 0%, transparent 70%)" }} />
-        <div className="relative mx-auto max-w-5xl">
-          <div className="text-center mb-16">
-            <Label>Enroll Today</Label>
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-white mb-3">Choose Your Learning Path</h2>
-            <p className="text-sm text-white/40 max-w-md mx-auto">All programs include mentorship until your first withdrawal — not just until course end.</p>
-          </div>
-          <div className="grid gap-5 lg:grid-cols-3">
-            <CourseCard
-              tier="Beginner"
-              title="Basic Program"
-              price="$420"
-              desc="For those starting from absolute zero with no prior market knowledge."
-              items={["Market basics & chart reading","Types of market trends","Account setup & trade execution","Introduction to risk management","Golden Map framework introduction","Live session access"]}
-            />
-            <CourseCard
-              tier="Intermediate"
-              title="Grooming Program"
-              price="$280"
-              desc="For traders who have foundational knowledge and need advanced refinement."
-              featured
-              items={["Advanced risk & money management","Emotional discipline framework","Personal trading journal system","Strategy development (70%+ win rate)","Finding & overcoming weak points","One-on-one coaching sessions","Funded account preparation"]}
-            />
-            <CourseCard
-              tier="Professional"
-              title="Special Slot"
-              price="$1,060"
-              desc="Complete institutional-level mentorship from absolute beginner to funded account."
-              items={["Full Forex & commodity curriculum","Fundamental analysis (NFP, CPI, GDP)","Supply & demand deep-dive","Day & swing trading strategies","Account scaling methodology","Institutional concepts & order flow","Lifetime strategy access"]}
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* ── WHAT YOU'LL LEARN ────────────────── */}
-      <section className="bg-[#07070e] px-6 py-24">
-        <div className="mx-auto max-w-5xl">
-          <div className="text-center mb-14">
-            <Label>Curriculum</Label>
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-white">What You'll Master</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-5">
-            {[
-              { icon: BarChart2, label: "Forex Trading" },
-              { icon: Activity, label: "Commodity Trading" },
-              { icon: TrendingUp, label: "Technical Analysis" },
-              { icon: BookOpen, label: "Fundamental Analysis" },
-              { icon: Shield, label: "Risk Management" },
-              { icon: Brain, label: "Trading Psychology" },
-              { icon: Zap, label: "Strategy Building" },
-              { icon: DollarSign, label: "Capital Management" },
-              { icon: TrendingUp, label: "Account Growth" },
-              { icon: Layers, label: "Market Structure" },
-            ].map(({ icon: Icon, label }) => (
-              <div key={label} className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-[#0d0d18] px-4 py-3.5 text-xs font-semibold text-white/55 transition-all hover:border-violet-500/30 hover:text-white/80">
-                <Icon size={13} className="shrink-0 text-violet-400" />
-                {label}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── FOUNDER ──────────────────────────── */}
-      <section className="relative px-6 py-28 overflow-hidden">
-        <div className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 h-[500px] w-[400px] rounded-full"
-          style={{ background: "radial-gradient(ellipse, rgba(124,58,237,0.1) 0%, transparent 70%)" }} />
-        <div className="relative mx-auto max-w-5xl">
-          <div className="grid gap-16 lg:grid-cols-2 lg:items-center">
-            <div className="relative order-2 lg:order-1">
-              <div className="relative overflow-hidden rounded-3xl border border-white/[0.07] aspect-[3/4] max-w-sm">
-                <img
-                  src="https://images.unsplash.com/photo-1560250097-0b93528c311a?w=700&q=85&auto=format"
-                  alt="Bilal Rizwan, Director of Skills Aura"
-                  className="h-full w-full object-cover object-top grayscale"
-                  style={{ filter: "grayscale(20%) brightness(0.85)" }}
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#05050a] via-transparent to-transparent" />
-                <div className="absolute bottom-0 left-0 right-0 p-7">
-                  <div className="flex items-end justify-between">
-                    <div>
-                      <p className="text-lg font-black text-white">Bilal Rizwan</p>
-                      <p className="text-xs text-violet-300 font-semibold">Director & Lead Mentor</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1">
-                      <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                      <span className="text-[10px] font-bold text-emerald-400">Live Trading</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="order-1 lg:order-2">
-              <Label>Meet The Founder</Label>
-              <h2 className="mb-6 text-4xl font-black uppercase tracking-tighter text-white leading-none">
-                Built By A Trader,<br />For Traders.
-              </h2>
-              <blockquote className="mb-6 border-l-2 border-violet-500 pl-5">
-                <p className="text-base italic leading-relaxed text-white/55">
-                  "Success in trading comes from skill, discipline, and consistency — not luck. Anyone can be taught to read markets. Few are taught to master themselves."
-                </p>
-              </blockquote>
-              <p className="mb-4 text-sm leading-relaxed text-white/45">
-                Skills Aura was built with one mission: to create truly independent traders who understand markets rather than relying on signals. After years of professional trading, Bilal and his team built the exact framework they wished they'd had from day one.
-              </p>
-              <p className="mb-8 text-sm leading-relaxed text-white/45">
-                The Golden Map — a complete institutional trading framework — is the product of 5+ years of professional market experience, distilled into a 3-month curriculum.
-              </p>
-              <div className="flex gap-3">
-                <button className="flex items-center gap-2 rounded-full bg-violet-600 px-6 py-3 text-sm font-bold text-white hover:bg-violet-500 transition-colors">
-                  Enroll Now
-                  <ArrowRight size={14} />
-                </button>
-                <button className="flex items-center gap-2 rounded-full border border-white/15 px-6 py-3 text-sm font-semibold text-white/70 hover:border-white/30 hover:text-white transition-colors">
-                  <Phone size={13} />
-                  Book Consultation
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── TESTIMONIALS ─────────────────────── */}
-      <section className="bg-[#07070e] px-6 py-28">
-        <div className="mx-auto max-w-5xl">
-          <div className="text-center mb-14">
-            <Label>Student Stories</Label>
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-white mb-3">Real Results, Real Traders</h2>
-            <p className="text-sm text-white/40">Verified outcomes from students across Pakistan, UK, UAE, and Canada.</p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <TestCard name="Mohammad Bilal" loc="Lahore, PK" quote="The perspective they give on trading is unbelievable. No mentor I've found comes close." profit="+$2,400" />
-            <TestCard name="Malik Nauman" loc="Karachi, PK" quote="I attended four trading academies before this. I wish I had come here first." profit="+$1,800" />
-            <TestCard name="Jason Kahn" loc="Bristol, UK" quote="If you actually want to start making consistent profit, this is the place to be." profit="+$5,100" />
-            <TestCard name="Arsalan Nadeem" loc="Islamabad, PK" quote="Made my first $400 in 5 months — starting with zero prior knowledge." profit="+$400" />
-          </div>
-        </div>
-      </section>
-
-      {/* ── STUDENT SPOTLIGHT ────────────────── */}
-      <section className="px-6 py-24">
-        <div className="mx-auto max-w-5xl">
-          <div className="relative rounded-3xl border border-violet-500/25 bg-gradient-to-br from-violet-950/40 via-[#0d0d18] to-[#0d0d18] overflow-hidden p-10 lg:p-14">
-            {/* Background grid */}
-            <div className="pointer-events-none absolute inset-0 opacity-[0.04]"
-              style={{ backgroundImage: "linear-gradient(rgba(167,139,250,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(167,139,250,0.5) 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
-            <div className="relative grid gap-10 lg:grid-cols-2 lg:items-center">
-              <div>
-                <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-violet-500/25 bg-violet-950/50 px-4 py-2">
-                  <Award size={12} className="text-violet-400" />
-                  <span className="text-xs font-semibold uppercase tracking-widest text-violet-300">Student Spotlight</span>
-                </div>
-                <h3 className="mb-4 text-3xl font-black uppercase tracking-tighter text-white leading-none">
-                  Funded Account<br />At Age 16.
-                </h3>
-                <p className="mb-6 text-sm leading-relaxed text-white/50">
-                  Taha Shah became the youngest Skills Aura student to acquire a funded trading account — achieving this milestone in just 4 months of mentorship. He now trades professionally.
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { label: "Age at funding", val: "16" },
-                    { label: "Months to funded", val: "4" },
-                    { label: "Strategy win rate", val: "71%" },
-                    { label: "Status", val: "Funded" },
-                  ].map(({ label, val }) => (
-                    <div key={label} className="rounded-xl border border-white/[0.07] bg-black/30 p-4">
-                      <p className="text-xs text-white/35 mb-1">{label}</p>
-                      <p className="text-xl font-black text-violet-300">{val}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="relative">
-                <div className="relative overflow-hidden rounded-2xl border border-white/[0.07] aspect-square max-w-xs mx-auto">
-                  <img
-                    src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=500&q=85&auto=format"
-                    alt="Taha Shah — youngest funded trader at Skills Aura"
-                    className="h-full w-full object-cover"
-                    style={{ filter: "brightness(0.8)" }}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
-                  <div className="absolute bottom-0 left-0 right-0 p-5">
-                    <p className="text-sm font-black text-white">Taha Shah</p>
-                    <p className="text-xs text-violet-300">Youngest Funded Trader</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── GLOBAL MAP ───────────────────────── */}
-      <section className="bg-[#07070e] px-6 py-24">
-        <div className="mx-auto max-w-5xl">
-          <div className="text-center mb-14">
-            <Label>Global Community</Label>
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-white mb-2">Students Across The World</h2>
-            <div className="flex items-center justify-center gap-2 text-xs text-white/30 mt-2">
-              <MapPin size={11} className="text-violet-400" />
-              Launched in Pakistan — February 2025
-            </div>
-          </div>
-          <div className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#0d0d18]">
-            <img
-              src="https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/World_map_-_low_resolution.svg/1200px-World_map_-_low_resolution.svg.png"
-              alt="World map"
-              className="w-full opacity-[0.08]"
-              style={{ mixBlendMode: "luminosity" }}
-            />
-            <div className="absolute inset-0 flex items-center justify-center p-8">
-              <div className="flex flex-wrap justify-center gap-3">
-                {[
-                  { flag: "PK", country: "Pakistan", students: "500+" },
-                  { flag: "GB", country: "United Kingdom", students: "60+" },
-                  { flag: "US", country: "United States", students: "45+" },
-                  { flag: "CA", country: "Canada", students: "35+" },
-                  { flag: "NO", country: "Norway", students: "20+" },
-                ].map(({ flag, country, students }) => (
-                  <div key={country}
-                    className={cn("rounded-xl border px-5 py-3 text-center backdrop-blur-sm",
-                      flag === "PK" ? "border-violet-500/40 bg-violet-950/50" : "border-white/10 bg-black/50"
-                    )}>
-                    <img
-                      src={`https://flagcdn.com/24x18/${flag.toLowerCase()}.png`}
-                      alt={country}
-                      className="mx-auto mb-2 rounded-sm"
-                      width={24} height={18}
-                    />
-                    <p className="text-xs font-bold text-white">{country}</p>
-                    <p className="text-xs font-black text-violet-300">{students}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── FAQ ──────────────────────────────── */}
-      <section className="px-6 py-28">
-        <div className="mx-auto max-w-3xl">
-          <div className="text-center mb-14">
-            <Label>FAQ</Label>
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-white">Common Questions</h2>
-          </div>
-          <div className="rounded-2xl border border-white/[0.07] bg-[#0d0d18] px-8 py-2">
-            <FAQItem q="Can complete beginners join?" a="Absolutely. Our Basic Program starts from scratch — no prior trading knowledge is required. We cover everything from what a candlestick is to live trade execution." />
-            <FAQItem q="Is this Forex or Commodity trading?" a="Both. We teach Forex (currency pairs including EUR/USD, GBP/USD) and Commodities (Gold/XAU, Oil/WTI), giving you multiple professional markets to trade." />
-            <FAQItem q="Do you offer online classes?" a="Yes. We offer both in-person sessions in Pakistan and fully live online sessions via Zoom for students in the UK, UAE, Canada, and beyond." />
-            <FAQItem q="How long does training take?" a="Most students complete the core curriculum in 3 months and begin live trading. Mentorship continues beyond completion until you achieve your first consistent withdrawal." />
-            <FAQItem q="Is there a refund policy?" a="Yes — 100% money-back guarantee. If you complete the full program and feel you haven't genuinely learned, we refund you in full. No questions asked." />
-            <FAQItem q="Will I get mentorship after the course ends?" a="Yes. We do not abandon students at course completion. Our team stays with you — through live sessions and direct access — until you are consistently profitable." />
-          </div>
-        </div>
-      </section>
-
-      {/* ── CONTACT ──────────────────────────── */}
-      <section className="bg-[#07070e] px-6 py-28" id="contact">
-        <div className="mx-auto max-w-5xl">
-          <div className="grid gap-16 lg:grid-cols-2">
-            <div>
-              <Label>Get In Touch</Label>
-              <h2 className="mb-5 text-4xl font-black uppercase tracking-tighter text-white leading-none">
-                Start Your Trading<br />Journey Today.
-              </h2>
-              <p className="mb-8 text-sm leading-relaxed text-white/45">
-                Fill out the form and a mentor will respond within 24 hours. Or reach us directly on WhatsApp for an immediate response.
-              </p>
-              <div className="flex flex-col gap-5">
-                {[
-                  { icon: Phone, label: "WhatsApp", val: "+92 322 6098992" },
-                  { icon: Globe, label: "Serving", val: "Pakistan · UK · UAE · Canada · USA" },
-                  { icon: Clock, label: "Response Time", val: "Within 24 hours" },
-                  { icon: Lock, label: "Your data", val: "Private and never shared" },
-                ].map(({ icon: Icon, label, val }) => (
-                  <div key={label} className="flex items-center gap-4">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-violet-500/20 bg-violet-500/10">
-                      <Icon size={15} className="text-violet-400" />
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-white/30 font-medium">{label}</p>
-                      <p className="text-sm font-semibold text-white/75">{val}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-white/[0.07] bg-[#0d0d18] p-8">
-              <h3 className="mb-1 text-lg font-black text-white">Book a Free Consultation</h3>
-              <p className="mb-6 text-xs text-white/35">No commitment. A mentor will walk you through the right program for your goals.</p>
-              <div className="flex flex-col gap-3">
-                {["Full Name", "Email Address", "Phone Number", "City"].map(pl => (
-                  <input key={pl} type="text" placeholder={pl}
-                    className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-white/20 outline-none transition-colors focus:border-violet-500/50 focus:bg-white/[0.05]" />
-                ))}
-                <select className="w-full rounded-xl border border-white/[0.08] bg-[#0d0d18] px-4 py-3 text-sm text-white/50 outline-none focus:border-violet-500/50 transition-colors">
-                  <option value="">Select a course</option>
-                  <option>Basic Program — $420</option>
-                  <option>Grooming Program — $280</option>
-                  <option>Special Slot — $1,060</option>
-                </select>
-                <textarea rows={3} placeholder="Your question or message (optional)"
-                  className="w-full resize-none rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white placeholder-white/20 outline-none transition-colors focus:border-violet-500/50" />
-                <div className="flex gap-2.5 pt-1">
-                  <button className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-violet-600 py-3.5 text-sm font-bold text-white hover:bg-violet-500 transition-colors">
-                    <Mail size={14} />
-                    Send Message
-                  </button>
-                  <button className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/15 py-3.5 text-sm font-semibold text-white/70 hover:border-white/30 hover:text-white transition-colors">
-                    <MessageSquare size={14} />
-                    WhatsApp
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── FINAL CTA ────────────────────────── */}
-      <section className="relative overflow-hidden px-6 py-36">
-        <div className="pointer-events-none absolute inset-0"
-          style={{ background: "radial-gradient(ellipse 80% 60% at 50% 100%, rgba(124,58,237,0.22) 0%, transparent 70%)" }} />
-        <div className="relative mx-auto max-w-3xl text-center">
-          <Label>Join 700+ Traders</Label>
-          <h2 className="mb-5 font-black uppercase leading-none tracking-tighter text-white"
-            style={{ fontSize: "clamp(2.5rem, 6vw, 5.5rem)" }}>
-            Ready To Learn A<br />
-            <span style={{ background: "linear-gradient(100deg, #7c3aed 0%, #a78bfa 45%, #c4b5fd 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-              High-Income Skill?
-            </span>
-          </h2>
-          <p className="mb-10 text-sm text-white/40 max-w-lg mx-auto leading-relaxed">
-            Join Skills Aura and learn how institutional traders analyze markets, manage risk, and generate consistent income — for life.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-4">
-            <button className="group flex items-center gap-2 rounded-full bg-violet-600 px-10 py-4 text-sm font-bold text-white hover:bg-violet-500 hover:scale-105 transition-all duration-200">
-              Enroll Now — Start Today
-              <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
-            </button>
-            <button className="flex items-center gap-2 rounded-full border border-white/15 px-8 py-4 text-sm font-semibold text-white/60 hover:border-white/30 hover:text-white transition-all">
-              <Phone size={13} />
-              Talk To An Advisor
-            </button>
-          </div>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-            {[
-              { icon: Shield, label: "100% Money-Back Guarantee" },
-              { icon: Users, label: "Live Mentorship Included" },
-              { icon: Award, label: "0% Dropout Rate" },
-            ].map(({ icon: Icon, label }) => (
-              <span key={label} className="flex items-center gap-1.5 text-xs text-white/25">
-                <Icon size={11} className="text-violet-500" />
-                {label}
-              </span>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── GLOBAL STYLES ────────────────────── */}
       <style>{`
-        @keyframes twinkle {
-          0%, 100% { opacity: 0.05; }
-          50% { opacity: 0.55; }
+        @keyframes float {
+          0%   { transform: translateY(0px) translateX(0px); opacity: 0.2; }
+          25%  { transform: translateY(-30px) translateX(10px); opacity: 0.4; }
+          50%  { transform: translateY(-15px) translateX(-10px); opacity: 0.2; }
+          75%  { transform: translateY(-40px) translateX(5px); opacity: 0.35; }
+          100% { transform: translateY(0px) translateX(0px); opacity: 0.2; }
         }
-        @keyframes ticker {
-          0% { transform: translateX(0); }
-          100% { transform: translateX(-50%); }
+        @keyframes gradientShift {
+          0%,100% { background-position: 0% 50%; }
+          50%      { background-position: 100% 50%; }
+        }
+        @keyframes pulseGlow {
+          0%,100% { box-shadow: 0 0 30px rgba(147,51,234,0.4); }
+          50%      { box-shadow: 0 0 60px rgba(147,51,234,0.7); }
+        }
+        @keyframes spin-slow {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        @keyframes heroReveal {
+          from { opacity: 0; transform: translateY(40px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .hero-animate { animation: heroReveal 0.9s cubic-bezier(.16,1,.3,1) both; }
+        .hero-delay-1 { animation-delay: 0.1s; }
+        .hero-delay-2 { animation-delay: 0.25s; }
+        .hero-delay-3 { animation-delay: 0.4s; }
+        .hero-delay-4 { animation-delay: 0.55s; }
+        .hero-delay-5 { animation-delay: 0.7s; }
+        .gradient-text {
+          background: linear-gradient(135deg, #fff 30%, #a855f7 60%, #7c3aed 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+        .animated-gradient-bg {
+          background: linear-gradient(270deg, #0f0020, #000, #0a001a, #000);
+          background-size: 400% 400%;
+          animation: gradientShift 12s ease infinite;
+        }
+        .pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
+        .spin-slow  { animation: spin-slow 20s linear infinite; }
+        .card-hover {
+          transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card-hover:hover {
+          transform: translateY(-4px);
+          border-color: rgba(147,51,234,0.5);
+          box-shadow: 0 16px 40px rgba(147,51,234,0.12);
         }
       `}</style>
-    </main>
+
+      {/* ── NAV ─────────────────────────────────────────────────────────── */}
+      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 md:px-16 py-4 bg-black/80 backdrop-blur-md border-b border-white/5">
+        <span className="text-lg font-black tracking-tighter">SKILLS <span className="text-purple-400">AURA</span></span>
+        <div className="hidden md:flex items-center gap-8 text-[11px] font-bold uppercase tracking-widest text-gray-400">
+          <a href="#courses" className="hover:text-white transition-colors">Courses</a>
+          <a href="#batches" className="hover:text-white transition-colors">Batches</a>
+          <a href="#about"   className="hover:text-white transition-colors">About</a>
+          <a href="#stories" className="hover:text-white transition-colors">Stories</a>
+        </div>
+        <button
+          onClick={() => navigate('/consultation')}
+          className="bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold uppercase tracking-widest px-5 py-2.5 rounded-full transition-all pulse-glow"
+        >
+          Free Consultation
+        </button>
+      </nav>
+
+      {/* ── HERO ────────────────────────────────────────────────────────── */}
+      <section className="relative w-full min-h-screen flex flex-col items-center justify-center overflow-hidden bg-black z-10 pt-20">
+        {/* Dot grid */}
+        <div
+          className="absolute inset-0 z-0 opacity-[0.08]"
+          style={{ backgroundImage: 'radial-gradient(circle, #ffffff 1px, transparent 1px)', backgroundSize: '80px 80px' }}
+        />
+        {/* Floating particles */}
+        <ParticleField count={40} />
+        {/* Radial glow */}
+        <div className="absolute top-1/2 left-1/2 w-[600px] h-[600px] bg-purple-800/20 rounded-full blur-[140px] pointer-events-none -translate-x-1/2 -translate-y-1/2" />
+        {/* Slow-spin ring */}
+        <div className="absolute top-1/2 left-1/2 w-[700px] h-[700px] border border-purple-500/10 rounded-full pointer-events-none -translate-x-1/2 -translate-y-1/2 spin-slow" />
+
+        {heroVisible && (
+          <div className="relative z-20 flex flex-col items-center text-center px-4 mt-[-5vh]">
+            <p className="hero-animate hero-delay-1 text-purple-400 text-xs font-bold uppercase tracking-widest mb-6 flex items-center gap-2">
+              <span className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
+              Pakistan's First Elite Trading Academy
+            </p>
+
+            <h1 className="hero-animate hero-delay-2 text-5xl md:text-8xl font-black uppercase tracking-tighter mb-6 leading-[0.9]">
+              <span className="gradient-text">LEARN TRADING.</span>
+              <br />
+              <span className="text-white">THE INSTITUTIONAL WAY.</span>
+            </h1>
+
+            <p className="hero-animate hero-delay-3 text-gray-300 text-base md:text-xl max-w-2xl font-medium mb-10 leading-relaxed">
+              Master the markets through live market execution, expert mentorship, and a structured path to financial independence.
+            </p>
+
+            <div className="hero-animate hero-delay-4 flex flex-col sm:flex-row gap-4 mb-16">
+              <button
+                onClick={() => navigate('/enroll')}
+                className="bg-purple-600 hover:bg-purple-500 text-white text-sm font-bold uppercase tracking-widest px-8 py-4 rounded-full transition-all pulse-glow"
+              >
+                Enroll Now
+              </button>
+              <button className="bg-transparent border border-white/20 text-white text-sm font-bold uppercase tracking-widest px-8 py-4 rounded-full hover:bg-white/10 transition-colors flex items-center justify-center gap-2">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                Watch Video
+              </button>
+            </div>
+
+            {/* Stats */}
+            <div className="hero-animate hero-delay-5 flex flex-wrap justify-center gap-8 md:gap-16 text-center border-t border-white/10 pt-8">
+              <div>
+                <p className="text-3xl font-black tracking-tighter"><AnimatedNumber target={713} suffix="+" /></p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mt-1">Students Trained</p>
+              </div>
+              <div>
+                <p className="text-3xl font-black tracking-tighter text-purple-400"><AnimatedNumber target={971} prefix="$" suffix="K+" /></p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mt-1">Student Profits</p>
+              </div>
+              <div>
+                <p className="text-3xl font-black tracking-tighter"><AnimatedNumber target={5} /></p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mt-1">Countries Reached</p>
+              </div>
+            </div>
+
+            <div className="hero-animate hero-delay-5 flex flex-wrap justify-center gap-4 mt-6 text-[10px] text-gray-400 uppercase tracking-widest font-bold">
+              <span className="bg-[#111] px-3 py-1 rounded-full border border-white/5">✓ Online & Physical</span>
+              <span className="bg-[#111] px-3 py-1 rounded-full border border-white/5">✓ Live Mentorship</span>
+              <span className="bg-[#111] px-3 py-1 rounded-full border border-white/5">✓ Community Access</span>
+            </div>
+          </div>
+        )}
+
+        {/* Glowing horizon */}
+        <div className="absolute bottom-[-20vh] md:bottom-[-30vh] left-[-25%] w-[150%] h-[40vh] md:h-[50vh] bg-black rounded-t-[100%] border-t-2 border-purple-500 shadow-[0_-50px_150px_rgba(147,51,234,0.4)] z-10 pointer-events-none" />
+      </section>
+
+      {/* ── WHO IS THIS FOR ─────────────────────────────────────────────── */}
+      <section className="relative w-full py-24 px-6 md:px-20 bg-black z-20 overflow-hidden">
+        <div className="absolute inset-0 animated-gradient-bg opacity-40 pointer-events-none" />
+        <div className="absolute right-[-10%] top-1/2 w-[500px] h-[500px] bg-purple-900/15 rounded-full blur-[120px] pointer-events-none -translate-y-1/2" />
+
+        <div className="relative max-w-7xl mx-auto">
+          <Reveal>
+            <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter mb-12 text-center leading-[0.95]">
+              DESIGNED FOR <span className="text-purple-400">EVERY STAGE</span>
+            </h2>
+          </Reveal>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { title: 'Beginner',          desc: 'Learn trading from absolute zero with no prior experience needed.' },
+              { title: 'Student',           desc: 'Build a future skill and an additional income source while studying.' },
+              { title: 'Job Holder',        desc: 'Trade alongside your career and build toward financial freedom.' },
+              { title: 'Struggling Trader', desc: 'Fix mistakes, stop gambling, and learn institutional concepts.' },
+            ].map((item, i) => (
+              <Reveal key={i} delay={i * 80}>
+                <div
+                  className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-8 card-hover cursor-pointer h-full"
+                  onClick={() => navigate('/enroll')}
+                >
+                  <h3 className="text-xl font-bold mb-3 group-hover:text-purple-400">{item.title}</h3>
+                  <p className="text-sm text-gray-400 leading-relaxed mb-6">{item.desc}</p>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-purple-500">Enroll Now →</span>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── WHY SKILLS AURA + HOW IT WORKS ─────────────────────────────── */}
+      <section
+        id="about"
+        className="relative w-full py-24 px-6 md:px-20 bg-[#050505] border-t border-b border-white/5 z-20 overflow-hidden"
+      >
+        <div className="absolute left-[-15%] top-0 w-[500px] h-[500px] bg-purple-950/30 rounded-full blur-[130px] pointer-events-none" />
+
+        <div className="relative max-w-7xl mx-auto flex flex-col lg:flex-row gap-20">
+
+          {/* Why Skills Aura */}
+          <div className="flex-1">
+            <Reveal>
+              <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-4">The Institutional Edge</p>
+              <h2 className="text-5xl font-black uppercase tracking-tighter mb-8 leading-[0.9]">
+                WHY <span className="text-purple-400">SKILLS AURA?</span>
+              </h2>
+            </Reveal>
+
+            <div className="space-y-3 mb-10">
+              {Object.keys(featureDetails).map((feature, i) => (
+                <Reveal key={i} delay={i * 60}>
+                  <button
+                    className="w-full text-left flex justify-between items-center bg-black border border-white/5 p-5 rounded-xl transition-all hover:bg-[#111]"
+                    onClick={() => setActiveFeature(activeFeature === feature ? null : feature)}
+                  >
+                    <span className="font-semibold">{feature}</span>
+                    <span
+                      className="text-xl font-light text-purple-500 transition-transform duration-300"
+                      style={{ transform: activeFeature === feature ? 'rotate(45deg)' : 'none' }}
+                    >+</span>
+                  </button>
+                  {activeFeature === feature && (
+                    <div className="bg-[#0d0d0d] border border-purple-500/20 rounded-xl px-5 py-4 text-sm text-gray-300 leading-relaxed mt-1">
+                      {featureDetails[feature]}
+                    </div>
+                  )}
+                </Reveal>
+              ))}
+            </div>
+
+            <button
+              onClick={() => navigate('/enroll')}
+              className="bg-white text-black text-xs font-bold uppercase tracking-widest px-8 py-3.5 rounded-full hover:bg-gray-200 transition-colors"
+            >
+              Start Your Journey
+            </button>
+          </div>
+
+          {/* How It Works */}
+          <div className="flex-1">
+            <Reveal>
+              <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-4">The Process</p>
+              <h2 className="text-5xl font-black uppercase tracking-tighter mb-8 leading-[0.9]">
+                HOW IT <span className="text-purple-400">WORKS</span>
+              </h2>
+            </Reveal>
+
+            <div className="relative border-l border-purple-500/20 ml-4 space-y-8 pb-4">
+              {[
+                { step: '01', title: 'Learn',               desc: 'Master institutional concepts and market structure in live sessions.' },
+                { step: '02', title: 'Practice',            desc: 'Apply strategies on demo accounts with real-time mentor supervision.' },
+                { step: '03', title: 'Trade',               desc: 'Execute live trades with real capital, discipline, and risk management.' },
+                { step: '04', title: 'Become Independent',  desc: 'Scale your account and trade profitably on your own — for life.' },
+              ].map((item, i) => (
+                <Reveal key={i} delay={i * 100}>
+                  <div className="relative pl-10">
+                    <div className="absolute -left-[17px] top-1 w-8 h-8 bg-black border-2 border-purple-500 rounded-full flex items-center justify-center text-[10px] font-bold text-purple-400">
+                      {item.step}
+                    </div>
+                    <h3 className="text-xl font-bold mb-2">{item.title}</h3>
+                    <p className="text-sm text-gray-400">{item.desc}</p>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── COURSES ─────────────────────────────────────────────────────── */}
+      <section id="courses" className="w-full py-32 px-6 md:px-20 bg-black relative overflow-hidden">
+        <div className="absolute top-1/2 left-[-10%] w-[40%] h-[80%] bg-purple-900/10 blur-[150px] rounded-full pointer-events-none -translate-y-1/2" />
+        <div className="absolute top-1/2 right-[-10%] w-[30%] h-[60%] bg-indigo-900/10 blur-[130px] rounded-full pointer-events-none -translate-y-1/2" />
+
+        <div className="relative max-w-7xl mx-auto flex flex-col items-center">
+          <Reveal>
+            <h2 className="text-5xl md:text-7xl font-black uppercase tracking-tighter mb-4 text-center leading-[0.95]">
+              OUR FLAGSHIP <span className="gradient-text">COURSES</span>
+            </h2>
+            <p className="text-gray-400 text-sm max-w-2xl text-center mb-16 mx-auto">
+              Every course is designed to take you from where you are to where you want to be — profitably and independently.
+            </p>
+          </Reveal>
+
+          <div className="w-full flex flex-col lg:flex-row gap-6 items-end justify-center">
+
+            {/* Grooming */}
+            <Reveal className="w-full lg:w-[30%]" delay={0}>
+              <div className="bg-[#0a0a0a] border border-white/5 rounded-3xl p-8 shadow-xl card-hover h-full">
+                <div className="inline-block bg-purple-500/20 text-purple-400 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-6">New Program</div>
+                <h3 className="text-2xl font-bold mb-1">Grooming Program</h3>
+                <p className="text-xs text-gray-400 mb-6 pb-6 border-b border-white/10">Psychology & Consistency Mastery</p>
+                <div className="flex items-baseline gap-1 mb-2">
+                  <span className="text-4xl font-light">Rs. 5,000</span>
+                </div>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-8">Online Only · Intensive Format</p>
+                <ul className="space-y-4 mb-10">
+                  {['Trading Psychology Deep-Dive', 'Emotional Control Framework', 'Consistency & Discipline Systems', 'Journal & Review Methodology', 'Mindset of Professional Traders', 'Group Accountability Sessions'].map((feat, i) => (
+                    <li key={i} className="flex items-start gap-3 text-xs text-gray-300">
+                      <span className="text-purple-500 mt-0.5">✓</span> {feat}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs font-bold text-purple-400 mb-6">✓ 4 Modules · 4 Weeks · Certificate</p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => navigate('/enroll?course=grooming')}
+                    className="w-full bg-white text-black text-xs font-bold uppercase tracking-widest py-3 rounded-full hover:bg-gray-200 transition-colors"
+                  >Apply Now</button>
+                  <button
+                    onClick={() => navigate('/courses/grooming')}
+                    className="w-full border border-white/20 text-white text-xs font-bold uppercase tracking-widest py-3 rounded-full hover:bg-white/5 transition-colors"
+                  >View Details</button>
+                </div>
+              </div>
+            </Reveal>
+
+            {/* Ultimate Trader – elevated */}
+            <Reveal className="w-full lg:w-[35%] lg:-translate-y-8" delay={100}>
+              <div className="bg-gradient-to-b from-[#1a1025] to-[#0a0a0a] border border-purple-500/40 rounded-3xl p-8 shadow-[0_0_60px_rgba(147,51,234,0.2)] relative card-hover">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-purple-600 text-white text-[10px] font-bold uppercase tracking-widest px-4 py-1 rounded-full">Most Popular</div>
+                <h3 className="text-3xl font-bold mb-1 text-white mt-4">Ultimate Trader™</h3>
+                <p className="text-xs text-gray-400 mb-6 pb-6 border-b border-white/10">Basic to Expert — The Complete Journey</p>
+                <div className="flex items-baseline gap-1 mb-2">
+                  <span className="text-5xl font-light text-white">Rs. 10,000</span>
+                </div>
+                <p className="text-[10px] text-purple-300 uppercase tracking-widest mb-8">Online & Physical · One-Time Fee</p>
+                <ul className="space-y-4 mb-10">
+                  {['Forex, Gold & Commodity Trading', 'Institutional Trading Concepts', 'Smart Money & Liquidity Theory', 'Risk Management Framework', 'Live Market Sessions', 'Trade Psychology & Discipline', 'Withdrawal & Account Growth', 'Lifetime Community Access'].map((feat, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-gray-200 font-medium">
+                      <span className="text-purple-400 mt-0.5">✓</span> {feat}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-sm font-bold text-white mb-8">✓ 8 Modules · 12 Weeks · Certificate</p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => navigate('/enroll?course=ultimate')}
+                    className="w-full bg-purple-600 text-white text-sm font-bold uppercase tracking-widest py-4 rounded-full hover:bg-purple-500 transition-colors shadow-[0_0_20px_rgba(147,51,234,0.4)]"
+                  >Apply Now</button>
+                  <button
+                    onClick={() => navigate('/courses/ultimate')}
+                    className="w-full text-gray-300 text-xs font-bold uppercase tracking-widest py-3 hover:text-white transition-colors"
+                  >View Details</button>
+                </div>
+              </div>
+            </Reveal>
+
+            {/* Special Slot */}
+            <Reveal className="w-full lg:w-[30%]" delay={200}>
+              <div className="bg-[#0a0a0a] border border-white/5 rounded-3xl p-8 shadow-xl card-hover h-full">
+                <div className="inline-block bg-[#222] text-gray-300 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-6">Elite Access</div>
+                <h3 className="text-2xl font-bold mb-1">Special Slot</h3>
+                <p className="text-xs text-gray-400 mb-6 pb-6 border-b border-white/10">1-on-1 Private Mentorship</p>
+                <div className="flex items-baseline gap-1 mb-2">
+                  <span className="text-4xl font-light">Custom</span>
+                </div>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-8">Consultation Required · Limited Slots</p>
+                <ul className="space-y-4 mb-10">
+                  {['Dedicated Personal Mentor', 'Custom Learning Path', 'Daily Trade Reviews', 'Direct WhatsApp Access', 'Portfolio Building Support', 'Funded Account Guidance'].map((feat, i) => (
+                    <li key={i} className="flex items-start gap-3 text-xs text-gray-300">
+                      <span className="text-purple-500 mt-0.5">✓</span> {feat}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs font-bold text-gray-300 mb-6">✓ Fully Personalized · 1-to-1 · Ongoing</p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => navigate('/consultation')}
+                    className="w-full bg-white text-black text-xs font-bold uppercase tracking-widest py-3 rounded-full hover:bg-gray-200 transition-colors"
+                  >Book Consultation</button>
+                  <button
+                    onClick={() => navigate('/courses/special-slot')}
+                    className="w-full border border-white/20 text-white text-xs font-bold uppercase tracking-widest py-3 rounded-full hover:bg-white/5 transition-colors"
+                  >Learn More</button>
+                </div>
+              </div>
+            </Reveal>
+
+          </div>
+        </div>
+      </section>
+
+      {/* ── BATCHES ─────────────────────────────────────────────────────── */}
+      <section id="batches" className="relative w-full py-24 px-6 md:px-20 bg-[#050505] border-t border-white/5 z-20 overflow-hidden">
+        <div className="absolute right-0 top-0 w-[500px] h-full bg-gradient-to-l from-purple-950/20 to-transparent pointer-events-none" />
+
+        <div className="relative max-w-7xl mx-auto">
+          <Reveal>
+            <div className="flex flex-col md:flex-row justify-between items-end mb-12 border-b border-white/10 pb-8 gap-6">
+              <div>
+                <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2">Schedules</p>
+                <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter">FIND YOUR <span className="text-purple-400">PERFECT BATCH</span></h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {['All', 'Online', 'Lahore', 'Islamabad', 'Karachi'].map(city => (
+                  <button
+                    key={city}
+                    onClick={() => setBatchCity(city)}
+                    className={`text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-full transition-all ${
+                      batchCity === city
+                        ? 'bg-white text-black'
+                        : 'bg-transparent border border-white/20 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {city === 'Online' ? '🌐' : city !== 'All' ? '📍' : ''} {city}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Reveal>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredBatches.map((batch, i) => (
+              <Reveal key={i} delay={i * 60}>
+                <div className="bg-black border border-white/10 rounded-2xl p-6 card-hover flex flex-col justify-between h-full">
+                  <div>
+                    <h4 className="text-2xl font-bold mb-1">{batch.date}</h4>
+                    <p className="text-xs text-gray-400 mb-4 font-mono">{batch.time}</p>
+                    <p className="text-[10px] text-purple-400 font-bold uppercase tracking-widest mb-6">{batch.loc}</p>
+                  </div>
+                  <button
+                    onClick={() => navigate('/enroll')}
+                    className="w-full border border-white/20 text-white text-[10px] font-bold uppercase tracking-widest py-2.5 rounded-full hover:bg-white hover:text-black transition-colors mt-4"
+                  >
+                    Select This Batch
+                  </button>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+
+          {filteredBatches.length === 0 && (
+            <div className="text-center py-16 text-gray-500">
+              <p className="text-lg mb-2">No batches found for {batchCity}.</p>
+              <p className="text-sm">Check back soon or <button onClick={() => setBatchCity('All')} className="text-purple-400 underline">view all batches</button>.</p>
+            </div>
+          )}
+
+          <div className="mt-12 text-center">
+            <button
+              onClick={() => navigate('/enroll')}
+              className="text-xs font-bold text-purple-400 uppercase tracking-widest hover:text-purple-300 transition-colors"
+            >
+              Secure Your Seat →
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── SUCCESS + BLOGS + FORM ──────────────────────────────────────── */}
+      <section id="stories" className="w-full py-24 px-6 md:px-20 bg-black border-t border-white/5 relative z-20 overflow-hidden">
+        <div className="absolute left-1/2 top-0 w-[600px] h-[400px] bg-purple-950/20 blur-[150px] rounded-full pointer-events-none -translate-x-1/2" />
+
+        <div className="relative max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-20">
+
+          {/* Left */}
+          <div className="space-y-20">
+            {/* Success Stories */}
+            <div>
+              <Reveal>
+                <h3 className="text-3xl font-black uppercase tracking-tighter mb-6">Success Stories</h3>
+              </Reveal>
+              {[
+                { quote: "I made my first $400 profit within 3 weeks of completing the course. The live sessions were game-changing.", name: 'Arsalan Nadeem' },
+                { quote: "Skills Aura didn't just teach me trading — it taught me discipline. I'm now consistently profitable.", name: 'Ayesha Malik' },
+              ].map((story, i) => (
+                <Reveal key={i} delay={i * 100}>
+                  <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 flex items-start gap-5 mb-4 card-hover">
+                    <div className="w-12 h-12 bg-purple-900/50 rounded-full flex items-center justify-center shrink-0 border border-purple-500/30 text-purple-400 font-bold text-lg">
+                      {story.name[0]}
+                    </div>
+                    <div>
+                      <p className="text-sm italic text-gray-300 mb-2">"{story.quote}"</p>
+                      <p className="text-xs font-bold uppercase text-gray-500">— {story.name}</p>
+                    </div>
+                  </div>
+                </Reveal>
+              ))}
+              <a href="#" className="text-[10px] font-bold text-purple-400 uppercase tracking-widest hover:text-purple-300 transition-colors">View All Stories →</a>
+            </div>
+
+            {/* Blogs */}
+            <div>
+              <Reveal>
+                <h3 className="text-3xl font-black uppercase tracking-tighter mb-6">Latest Insights</h3>
+              </Reveal>
+              <div className="space-y-4 mb-4">
+                {[
+                  'What Is Forex Trading? A Beginners Guide',
+                  '5 Common Mistakes New Traders Make',
+                  'Why Most Beginners Fail in Trading',
+                ].map((blog, i) => (
+                  <Reveal key={i} delay={i * 60}>
+                    <div className="group cursor-pointer border-b border-white/5 pb-4 hover:border-purple-500/30 transition-colors">
+                      <h4 className="text-sm font-bold group-hover:text-purple-400 transition-colors mb-1">{blog}</h4>
+                      <p className="text-[10px] text-gray-500 uppercase tracking-widest">Read Article →</p>
+                    </div>
+                  </Reveal>
+                ))}
+              </div>
+              <a href="#" className="text-[10px] font-bold text-purple-400 uppercase tracking-widest hover:text-purple-300 transition-colors">View All Blogs →</a>
+            </div>
+          </div>
+
+          {/* Right: Consultation Form */}
+          <div>
+            <Reveal>
+              <ConsultationForm onSubmit={() => navigate('/consultation')} />
+            </Reveal>
+
+            <div className="mt-12 text-center border-t border-white/10 pt-8">
+              <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-4">Trusted By Institutions</p>
+              <div className="flex justify-center gap-6 opacity-30 grayscale mb-6">
+                <div className="h-6 w-24 bg-white/30 rounded" />
+                <div className="h-6 w-24 bg-white/30 rounded" />
+                <div className="h-6 w-24 bg-white/30 rounded" />
+              </div>
+              <button
+                onClick={() => navigate('/consultation')}
+                className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-white underline decoration-white/30 underline-offset-4 transition-colors"
+              >
+                Become a Partner
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FINAL CTA ───────────────────────────────────────────────────── */}
+      <section className="relative w-full py-32 px-6 md:px-20 bg-black overflow-hidden border-t border-white/5">
+        <div className="absolute inset-0 animated-gradient-bg opacity-60 pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 w-[80%] h-[100%] bg-purple-900/20 blur-[150px] rounded-full pointer-events-none -translate-x-1/2 -translate-y-1/2" />
+
+        <div className="relative z-10 max-w-4xl mx-auto text-center">
+          <Reveal>
+            <h2 className="text-5xl md:text-8xl font-black uppercase tracking-tighter mb-8 leading-[0.9]">
+              STOP WATCHING OTHERS
+              <br />
+              <span className="gradient-text">MAKE MONEY.</span>
+            </h2>
+            <p className="text-gray-300 text-lg md:text-xl font-medium mb-12 max-w-2xl mx-auto">
+              Join Pakistan's Premium Trading Academy and learn an institutional skill that will last a lifetime.
+            </p>
+            <div className="flex flex-col sm:flex-row justify-center gap-4">
+              <button
+                onClick={() => navigate('/enroll')}
+                className="bg-purple-600 hover:bg-purple-500 text-white text-sm font-bold uppercase tracking-widest px-10 py-5 rounded-full pulse-glow transition-colors"
+              >
+                Enroll Now
+              </button>
+              <button
+                onClick={() => navigate('/consultation')}
+                className="bg-white text-black hover:bg-gray-200 text-sm font-bold uppercase tracking-widest px-10 py-5 rounded-full transition-colors"
+              >
+                Free Consultation
+              </button>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── FOOTER ──────────────────────────────────────────────────────── */}
+      <footer className="w-full py-12 px-6 md:px-20 bg-black border-t border-white/5">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
+          <span className="text-lg font-black tracking-tighter">SKILLS <span className="text-purple-400">AURA</span></span>
+          <p className="text-[11px] text-gray-600 uppercase tracking-widest">© 2025 Skills Aura. Pakistan's First Elite Trading Academy.</p>
+          <div className="flex gap-6 text-[11px] font-bold uppercase tracking-widest text-gray-500">
+            <a href="#" className="hover:text-white transition-colors">Privacy</a>
+            <a href="#" className="hover:text-white transition-colors">Terms</a>
+            <button onClick={() => navigate('/consultation')} className="hover:text-white transition-colors">Contact</button>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+// ── Inline consultation mini-form ─────────────────────────────────────────
+function ConsultationForm({ onSubmit }) {
+  const [form, setForm]   = useState({ name: '', phone: '', course: '', time: '' });
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleChange = (e) => setForm(p => ({ ...p, [e.target.name]: e.target.value }));
+
+  const handleSubmit = () => {
+    if (!form.name || !form.phone) return alert('Please fill in your name and phone number.');
+    setSubmitted(true);
+    setTimeout(onSubmit, 1500);
+  };
+
+  return (
+    <div className="bg-gradient-to-br from-[#111] to-[#050505] border border-white/10 rounded-3xl p-8 lg:p-10 shadow-2xl">
+      <h3 className="text-3xl font-black uppercase tracking-tighter mb-2">Book Free Consultation</h3>
+      <p className="text-xs text-gray-400 mb-8">Speak directly with an advisor to find the right path for you.</p>
+
+      {submitted ? (
+        <div className="text-center py-12">
+          <div className="w-16 h-16 bg-purple-900/40 border border-purple-500/50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-7 h-7 text-purple-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <p className="font-bold text-lg mb-1">You're booked in!</p>
+          <p className="text-sm text-gray-400">Redirecting you to confirm your slot…</p>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-4 mb-8">
+            <div className="grid grid-cols-2 gap-4">
+              <input
+                name="name" value={form.name} onChange={handleChange}
+                type="text" placeholder="Name"
+                className="bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-purple-500 transition-colors w-full"
+              />
+              <input
+                name="phone" value={form.phone} onChange={handleChange}
+                type="tel" placeholder="Phone"
+                className="bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-purple-500 transition-colors w-full"
+              />
+            </div>
+            <select
+              name="course" value={form.course} onChange={handleChange}
+              className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-gray-400 focus:outline-none focus:border-purple-500 transition-colors appearance-none"
+            >
+              <option value="">Select Course Interest</option>
+              <option value="ultimate">Ultimate Trader Course</option>
+              <option value="grooming">Grooming Program</option>
+              <option value="special">Special Slot (1-on-1)</option>
+            </select>
+            <select
+              name="time" value={form.time} onChange={handleChange}
+              className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-gray-400 focus:outline-none focus:border-purple-500 transition-colors appearance-none"
+            >
+              <option value="">Preferred Call Time</option>
+              <option value="morning">Morning (9 AM – 12 PM)</option>
+              <option value="afternoon">Afternoon (12 PM – 5 PM)</option>
+              <option value="evening">Evening (5 PM – 9 PM)</option>
+            </select>
+            <button
+              onClick={handleSubmit}
+              className="w-full bg-white text-black text-xs font-bold uppercase tracking-widest py-4 rounded-xl hover:bg-gray-200 transition-colors mt-2"
+            >
+              Schedule Consultation
+            </button>
+          </div>
+          <div className="text-center">
+            <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-3">Or talk to us instantly</p>
+            <a
+              href="https://wa.me/92XXXXXXXXXX"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 text-xs font-bold uppercase tracking-widest px-6 py-2.5 rounded-full hover:bg-[#25D366]/20 transition-colors"
+            >
+              Chat on WhatsApp
+            </a>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
