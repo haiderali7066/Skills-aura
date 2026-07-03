@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 
+import TestimonialsSection from '@/components/TestimonialsSection';
+
 // ── Router shim (works standalone or inside Next/React Router) ──────────────
 function useNavigate() {
   return (path) => {
@@ -572,84 +574,11 @@ export default function SkillsAuraHome() {
         </div>
       </section>
 
-      {/* ── SUCCESS + BLOGS + FORM ──────────────────────────────────────── */}
-      <section id="stories" className="w-full py-24 px-6 md:px-20 bg-black border-t border-white/5 relative z-20 overflow-hidden">
-        <div className="absolute left-1/2 top-0 w-[600px] h-[400px] bg-purple-950/20 blur-[150px] rounded-full pointer-events-none -translate-x-1/2" />
+      
 
-        <div className="relative max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-20">
 
-          {/* Left */}
-          <div className="space-y-20">
-            {/* Success Stories */}
-            <div>
-              <Reveal>
-                <h3 className="text-3xl font-black uppercase tracking-tighter mb-6">Success Stories</h3>
-              </Reveal>
-              {[
-                { quote: "I made my first $400 profit within 3 weeks of completing the course. The live sessions were game-changing.", name: 'Arsalan Nadeem' },
-                { quote: "Skills Aura didn't just teach me trading — it taught me discipline. I'm now consistently profitable.", name: 'Ayesha Malik' },
-              ].map((story, i) => (
-                <Reveal key={i} delay={i * 100}>
-                  <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 flex items-start gap-5 mb-4 card-hover">
-                    <div className="w-12 h-12 bg-purple-900/50 rounded-full flex items-center justify-center shrink-0 border border-purple-500/30 text-purple-400 font-bold text-lg">
-                      {story.name[0]}
-                    </div>
-                    <div>
-                      <p className="text-sm italic text-gray-300 mb-2">"{story.quote}"</p>
-                      <p className="text-xs font-bold uppercase text-gray-500">— {story.name}</p>
-                    </div>
-                  </div>
-                </Reveal>
-              ))}
-              <a href="#" className="text-[10px] font-bold text-purple-400 uppercase tracking-widest hover:text-purple-300 transition-colors">View All Stories →</a>
-            </div>
 
-            {/* Blogs */}
-            <div>
-              <Reveal>
-                <h3 className="text-3xl font-black uppercase tracking-tighter mb-6">Latest Insights</h3>
-              </Reveal>
-              <div className="space-y-4 mb-4">
-                {[
-                  'What Is Forex Trading? A Beginners Guide',
-                  '5 Common Mistakes New Traders Make',
-                  'Why Most Beginners Fail in Trading',
-                ].map((blog, i) => (
-                  <Reveal key={i} delay={i * 60}>
-                    <div className="group cursor-pointer border-b border-white/5 pb-4 hover:border-purple-500/30 transition-colors">
-                      <h4 className="text-sm font-bold group-hover:text-purple-400 transition-colors mb-1">{blog}</h4>
-                      <p className="text-[10px] text-gray-500 uppercase tracking-widest">Read Article →</p>
-                    </div>
-                  </Reveal>
-                ))}
-              </div>
-              <a href="#" className="text-[10px] font-bold text-purple-400 uppercase tracking-widest hover:text-purple-300 transition-colors">View All Blogs →</a>
-            </div>
-          </div>
-
-          {/* Right: Consultation Form */}
-          <div>
-            <Reveal>
-              <ConsultationForm onSubmit={() => navigate('/consultation')} />
-            </Reveal>
-
-            <div className="mt-12 text-center border-t border-white/10 pt-8">
-              <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-4">Trusted By Institutions</p>
-              <div className="flex justify-center gap-6 opacity-30 grayscale mb-6">
-                <div className="h-6 w-24 bg-white/30 rounded" />
-                <div className="h-6 w-24 bg-white/30 rounded" />
-                <div className="h-6 w-24 bg-white/30 rounded" />
-              </div>
-              <button
-                onClick={() => navigate('/consultation')}
-                className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-white underline decoration-white/30 underline-offset-4 transition-colors"
-              >
-                Become a Partner
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
+      <TestimonialsSection/>
 
       {/* ── FINAL CTA ───────────────────────────────────────────────────── */}
       <section className="relative w-full py-32 px-6 md:px-20 bg-black overflow-hidden border-t border-white/5">
