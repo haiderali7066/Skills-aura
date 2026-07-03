@@ -74,16 +74,29 @@ function Reveal({ children, delay = 0, className = '' }) {
 
 // ── Floating particle background ──────────────────────────────────────────
 function ParticleField({ count = 30 }) {
-  const particles = useRef(
-    Array.from({ length: count }, (_, i) => ({
-      id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      size: Math.random() * 2 + 1,
-      speed: Math.random() * 20 + 15,
-      delay: Math.random() * -20,
-    }))
-  ).current;
+  const [particles, setParticles] = useState<
+    {
+      id: number;
+      x: number;
+      y: number;
+      size: number;
+      speed: number;
+      delay: number;
+    }[]
+  >([]);
+
+  useEffect(() => {
+    setParticles(
+      Array.from({ length: count }, (_, i) => ({
+        id: i,
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        size: Math.random() * 2 + 1,
+        speed: Math.random() * 20 + 15,
+        delay: Math.random() * -20,
+      }))
+    );
+  }, [count]);
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden>
@@ -94,15 +107,15 @@ function ParticleField({ count = 30 }) {
           style={{
             left: `${p.x}%`,
             top: `${p.y}%`,
-            width: p.size,
-            height: p.size,
+            width: `${p.size}px`,
+            height: `${p.size}px`,
             animation: `float ${p.speed}s linear ${p.delay}s infinite`,
           }}
         />
       ))}
     </div>
   );
-}
+} 
 
 // ── Main Component ────────────────────────────────────────────────────────
 export default function SkillsAuraHome() {
@@ -191,22 +204,7 @@ export default function SkillsAuraHome() {
         }
       `}</style>
 
-      {/* ── NAV ─────────────────────────────────────────────────────────── */}
-      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 md:px-16 py-4 bg-black/80 backdrop-blur-md border-b border-white/5">
-        <span className="text-lg font-black tracking-tighter">SKILLS <span className="text-purple-400">AURA</span></span>
-        <div className="hidden md:flex items-center gap-8 text-[11px] font-bold uppercase tracking-widest text-gray-400">
-          <a href="#courses" className="hover:text-white transition-colors">Courses</a>
-          <a href="#batches" className="hover:text-white transition-colors">Batches</a>
-          <a href="#about"   className="hover:text-white transition-colors">About</a>
-          <a href="#stories" className="hover:text-white transition-colors">Stories</a>
-        </div>
-        <button
-          onClick={() => navigate('/consultation')}
-          className="bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold uppercase tracking-widest px-5 py-2.5 rounded-full transition-all pulse-glow"
-        >
-          Free Consultation
-        </button>
-      </nav>
+      
 
       {/* ── HERO ────────────────────────────────────────────────────────── */}
       <section className="relative w-full min-h-screen flex flex-col items-center justify-center overflow-hidden bg-black z-10 pt-20">
@@ -686,18 +684,7 @@ export default function SkillsAuraHome() {
         </div>
       </section>
 
-      {/* ── FOOTER ──────────────────────────────────────────────────────── */}
-      <footer className="w-full py-12 px-6 md:px-20 bg-black border-t border-white/5">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-          <span className="text-lg font-black tracking-tighter">SKILLS <span className="text-purple-400">AURA</span></span>
-          <p className="text-[11px] text-gray-600 uppercase tracking-widest">© 2025 Skills Aura. Pakistan's First Elite Trading Academy.</p>
-          <div className="flex gap-6 text-[11px] font-bold uppercase tracking-widest text-gray-500">
-            <a href="#" className="hover:text-white transition-colors">Privacy</a>
-            <a href="#" className="hover:text-white transition-colors">Terms</a>
-            <button onClick={() => navigate('/consultation')} className="hover:text-white transition-colors">Contact</button>
-          </div>
-        </div>
-      </footer>
+     
     </div>
   );
 }

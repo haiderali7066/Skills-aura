@@ -1,88 +1,73 @@
 'use client';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { BarChart3, TrendingUp, Users } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 export default function AnalyticsPage() {
+  // Animation Variants
+  const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } };
+  const item = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.5 } } };
+
+  const metrics = [
+    { label: 'Total Students', value: '000', change: '+0% from last month', icon: Users },
+    { label: 'Completion Rate', value: '00%', change: '+0% from last month', icon: TrendingUp },
+    { label: 'Avg. Rating', value: '0.0/5', change: 'Based on 0 reviews', icon: BarChart3 },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Analytics</h1>
-        <p className="text-muted-foreground mt-1">View detailed course and enrollment analytics</p>
-      </div>
+    <motion.div 
+      variants={container} 
+      initial="hidden" 
+      animate="show" 
+      className="space-y-8 max-w-7xl mx-auto"
+    >
+      <motion.div variants={item}>
+        <h1 className="text-4xl font-black uppercase tracking-tighter scale-y-110">Analytics</h1>
+        <p className="text-gray-400 font-medium mt-2">View detailed course and enrollment performance metrics.</p>
+      </motion.div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Students</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">2,543</div>
-            <p className="text-xs text-muted-foreground">+12% from last month</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">87%</div>
-            <p className="text-xs text-muted-foreground">+5% from last month</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg. Rating</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">4.8/5</div>
-            <p className="text-xs text-muted-foreground">Based on 189 reviews</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Course Performance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium">Web Development Basics</span>
-                <span className="text-sm text-muted-foreground">340 students</span>
+      <motion.div variants={item} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {metrics.map((metric, i) => {
+          const Icon = metric.icon;
+          return (
+            <div key={i} className="bg-[#111] border border-white/5 rounded-2xl p-6 hover:border-purple-500/30 transition-all">
+              <div className="flex items-center justify-between pb-4">
+                <span className="text-xs font-bold uppercase tracking-widest text-gray-500">{metric.label}</span>
+                <Icon className="h-4 w-4 text-purple-500" />
               </div>
-              <div className="w-full bg-muted rounded-full h-2">
-                <div className="bg-primary h-2 rounded-full" style={{ width: '95%' }} />
+              <div className="text-4xl font-black text-white mb-2">{metric.value}</div>
+              <p className="text-xs font-bold text-gray-600 uppercase tracking-widest">{metric.change}</p>
+            </div>
+          );
+        })}
+      </motion.div>
+
+      {/* Course Performance */}
+      <motion.div variants={item} className="bg-[#111] border border-white/5 rounded-3xl p-8">
+        <h2 className="text-lg font-black uppercase tracking-tighter scale-y-110 mb-8">Course Performance</h2>
+        {/* <div className="space-y-8">
+          {[
+            { title: "Web Development Basics", count: "000 students", width: "0%" },
+            { title: "Digital Marketing", count: "000 students", width: "0%" },
+            { title: "Data Science 101", count: "000 students", width: "0%" }
+          ].map((course, i) => (
+            <div key={i}>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-bold text-white">{course.title}</span>
+                <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">{course.count}</span>
+              </div>
+              <div className="w-full bg-black border border-white/5 rounded-full h-3 overflow-hidden">
+                <div 
+                  className="bg-gradient-to-r from-purple-600 to-purple-400 h-full rounded-full" 
+                  style={{ width: course.width }} 
+                />
               </div>
             </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium">Digital Marketing</span>
-                <span className="text-sm text-muted-foreground">280 students</span>
-              </div>
-              <div className="w-full bg-muted rounded-full h-2">
-                <div className="bg-primary h-2 rounded-full" style={{ width: '82%' }} />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium">Data Science 101</span>
-                <span className="text-sm text-muted-foreground">215 students</span>
-              </div>
-              <div className="w-full bg-muted rounded-full h-2">
-                <div className="bg-primary h-2 rounded-full" style={{ width: '75%' }} />
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+          ))}
+        </div> */}
+      </motion.div>
+    </motion.div>
   );
 }
